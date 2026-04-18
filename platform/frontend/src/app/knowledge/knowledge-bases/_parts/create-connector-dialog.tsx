@@ -62,57 +62,57 @@ const CONNECTOR_OPTIONS: {
   label: string;
   description: string;
 }[] = [
-    {
-      type: "jira",
-      label: CONNECTOR_TYPE_LABELS.jira,
-      description: "Sync issues and projects from Jira",
-    },
-    {
-      type: "confluence",
-      label: CONNECTOR_TYPE_LABELS.confluence,
-      description: "Sync pages and spaces from Confluence",
-    },
-    {
-      type: "github",
-      label: CONNECTOR_TYPE_LABELS.github,
-      description: "Sync issues and pull requests from GitHub",
-    },
-    {
-      type: "gitlab",
-      label: CONNECTOR_TYPE_LABELS.gitlab,
-      description: "Sync issues and merge requests from GitLab",
-    },
-    {
-      type: "servicenow",
-      label: "ServiceNow",
-      description: "Sync incidents from ServiceNow",
-    },
-    {
-      type: "notion",
-      label: CONNECTOR_TYPE_LABELS.notion,
-      description: "Sync pages and databases from Notion",
-    },
-    {
-      type: "sharepoint",
-      label: CONNECTOR_TYPE_LABELS.sharepoint,
-      description: "Sync documents and pages from SharePoint",
-    },
-    {
-      type: "gdrive",
-      label: CONNECTOR_TYPE_LABELS.gdrive,
-      description: "Sync files and documents from Google Drive",
-    },
-    {
-      type: "dropbox",
-      label: "Dropbox",
-      description: "Sync files and folders from Dropbox",
-    },
-    {
-      type: "asana",
-      label: CONNECTOR_TYPE_LABELS.asana,
-      description: "Sync tasks and comments from Asana",
-    },
-  ];
+  {
+    type: "jira",
+    label: CONNECTOR_TYPE_LABELS.jira,
+    description: "Sync issues and projects from Jira",
+  },
+  {
+    type: "confluence",
+    label: CONNECTOR_TYPE_LABELS.confluence,
+    description: "Sync pages and spaces from Confluence",
+  },
+  {
+    type: "github",
+    label: CONNECTOR_TYPE_LABELS.github,
+    description: "Sync issues and pull requests from GitHub",
+  },
+  {
+    type: "gitlab",
+    label: CONNECTOR_TYPE_LABELS.gitlab,
+    description: "Sync issues and merge requests from GitLab",
+  },
+  {
+    type: "servicenow",
+    label: "ServiceNow",
+    description: "Sync incidents from ServiceNow",
+  },
+  {
+    type: "notion",
+    label: CONNECTOR_TYPE_LABELS.notion,
+    description: "Sync pages and databases from Notion",
+  },
+  {
+    type: "sharepoint",
+    label: CONNECTOR_TYPE_LABELS.sharepoint,
+    description: "Sync documents and pages from SharePoint",
+  },
+  {
+    type: "gdrive",
+    label: CONNECTOR_TYPE_LABELS.gdrive,
+    description: "Sync files and documents from Google Drive",
+  },
+  {
+    type: "dropbox",
+    label: "Dropbox",
+    description: "Sync files and folders from Dropbox",
+  },
+  {
+    type: "asana",
+    label: CONNECTOR_TYPE_LABELS.asana,
+    description: "Sync tasks and comments from Asana",
+  },
+];
 
 interface CreateConnectorFormValues {
   name: string;
@@ -403,27 +403,27 @@ export function CreateConnectorDialog({
 
                 {(connectorType === "jira" ||
                   connectorType === "confluence") && (
-                    <FormField
-                      control={form.control}
-                      name="config.isCloud"
-                      render={({ field }) => (
-                        <FormItem className="flex items-center justify-between rounded-lg border p-3">
-                          <div className="space-y-0.5">
-                            <FormLabel>Cloud Instance</FormLabel>
-                            <FormDescription>
-                              Enable if this is a cloud-hosted instance.
-                            </FormDescription>
-                          </div>
-                          <FormControl>
-                            <Switch
-                              checked={(field.value as boolean) ?? true}
-                              onCheckedChange={field.onChange}
-                            />
-                          </FormControl>
-                        </FormItem>
-                      )}
-                    />
-                  )}
+                  <FormField
+                    control={form.control}
+                    name="config.isCloud"
+                    render={({ field }) => (
+                      <FormItem className="flex items-center justify-between rounded-lg border p-3">
+                        <div className="space-y-0.5">
+                          <FormLabel>Cloud Instance</FormLabel>
+                          <FormDescription>
+                            Enable if this is a cloud-hosted instance.
+                          </FormDescription>
+                        </div>
+                        <FormControl>
+                          <Switch
+                            checked={(field.value as boolean) ?? true}
+                            onCheckedChange={field.onChange}
+                          />
+                        </FormControl>
+                      </FormItem>
+                    )}
+                  />
+                )}
 
                 {connectorType === "github" && (
                   <FormField
