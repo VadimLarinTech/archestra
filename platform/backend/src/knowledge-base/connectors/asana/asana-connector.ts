@@ -262,26 +262,31 @@ export class AsanaConnector extends BaseConnector {
         pageHasMore = nextOffset !== null;
         offset = nextOffset ?? undefined;
 
+        const isFinalBatch = !pageHasMore && isLastProject;
+
         this.log.debug(
           {
             project: project.name,
             taskCount: tasks.length,
             filteredCount: filtered.length,
             documentCount: documents.length,
-            hasMore: pageHasMore || !isLastProject,
+            hasMore: !isFinalBatch,
           },
           "Tasks batch fetched",
         );
 
+        // Finalize the checkpoint only on the last page of the last project:
+        // this endpoint is not ordered by modified_at, so advancing per batch
+        // can skip unseen later pages after an interrupted run.
         yield {
           documents,
           failures: this.flushFailures(),
           checkpoint: buildCheckpoint({
             type: "asana",
-            itemUpdatedAt: progress.maxLastModified,
+            itemUpdatedAt: isFinalBatch ? progress.maxLastModified : undefined,
             previousLastSyncedAt: checkpoint.lastSyncedAt,
           }),
-          hasMore: pageHasMore || !isLastProject,
+          hasMore: !isFinalBatch,
         };
       } catch (error) {
         this.log.error(

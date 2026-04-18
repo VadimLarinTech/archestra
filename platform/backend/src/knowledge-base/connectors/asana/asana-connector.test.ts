@@ -695,6 +695,235 @@ describe("AsanaConnector", () => {
       );
     });
 
+    test("multi-page scan does not advance checkpoint until final batch", async () => {
+      // Intermediate batches must keep the old checkpoint.
+      const page1Tasks = [
+        makeTask("t1", "Page 1 task", {
+          modified_at: "2024-05-01T10:00:00.000Z",
+        }),
+      ];
+      const page2Tasks = [
+        makeTask("t2", "Page 2 task", {
+          modified_at: "2024-05-02T10:00:00.000Z",
+        }),
+      ];
+
+      mockGetTasksForProject
+        .mockResolvedValueOnce({
+          data: page1Tasks,
+          _response: { next_page: { offset: "page-2" } },
+        })
+        .mockResolvedValueOnce({ data: page2Tasks });
+      mockGetStoriesForTask
+        .mockResolvedValueOnce({ data: [] })
+        .mockResolvedValueOnce({ data: [] });
+
+      const batches: ConnectorSyncBatch[] = [];
+      for await (const batch of connector.sync({
+        config: validConfig,
+        credentials,
+        checkpoint: {
+          type: "asana",
+          lastSyncedAt: "2024-01-01T00:00:00.000Z",
+        },
+      })) {
+        batches.push(batch);
+      }
+
+      expect(batches).toHaveLength(2);
+      expect(batches[0].hasMore).toBe(true);
+      expect(batches[0].checkpoint.lastSyncedAt).toBe(
+        "2024-01-01T00:00:00.000Z",
+      );
+      expect(batches[1].hasMore).toBe(false);
+      expect(batches[1].checkpoint.lastSyncedAt).toBe(
+        "2024-05-02T10:00:00.000Z",
+      );
+    });
+
+    test("multi-project scan advances checkpoint only on last project's last batch", async () => {
+      mockGetProjectsForWorkspace.mockResolvedValueOnce({
+        data: [
+          { gid: "p1", name: "Project 1" },
+          { gid: "p2", name: "Project 2" },
+        ],
+      });
+
+      mockGetTasksForProject
+        .mockResolvedValueOnce({
+          data: [
+            makeTask("t1", "Newer task in P1", {
+              modified_at: "2024-06-15T10:00:00.000Z",
+            }),
+          ],
+        })
+        .mockResolvedValueOnce({
+          data: [
+            makeTask("t2", "Older task in P2", {
+              modified_at: "2024-06-10T10:00:00.000Z",
+            }),
+          ],
+        });
+
+      mockGetStoriesForTask
+        .mockResolvedValueOnce({ data: [] })
+        .mockResolvedValueOnce({ data: [] });
+
+      const batches: ConnectorSyncBatch[] = [];
+      for await (const batch of connector.sync({
+        config: {
+          workspaceGid: "1234567890",
+        },
+        credentials,
+        checkpoint: {
+          type: "asana",
+          lastSyncedAt: "2024-01-01T00:00:00.000Z",
+        },
+      })) {
+        batches.push(batch);
+      }
+
+      expect(batches).toHaveLength(2);
+      // P1 is not the last project: must not advance.
+      expect(batches[0].hasMore).toBe(true);
+      expect(batches[0].checkpoint.lastSyncedAt).toBe(
+        "2024-01-01T00:00:00.000Z",
+      );
+      // P2 last batch: must advance to the global max across both projects.
+      expect(batches[1].hasMore).toBe(false);
+      expect(batches[1].checkpoint.lastSyncedAt).toBe(
+        "2024-06-15T10:00:00.000Z",
+      );
+    });
+
+    test("intermediate batch with all tasks filtered by tagsToSkip does not advance checkpoint", async () => {
+      // Page 1's filtered max is higher than page 2's kept task to prove
+      // progress advances on filtered tasks too.
+      const page1Tasks = [
+        makeTask("t1", "Skipped", {
+          tags: ["internal"],
+          modified_at: "2024-07-05T10:00:00.000Z",
+        }),
+        makeTask("t2", "Also skipped", {
+          tags: ["internal"],
+          modified_at: "2024-07-10T10:00:00.000Z",
+        }),
+      ];
+      const page2Tasks = [
+        makeTask("t3", "Kept", {
+          modified_at: "2024-07-06T10:00:00.000Z",
+        }),
+      ];
+
+      mockGetTasksForProject
+        .mockResolvedValueOnce({
+          data: page1Tasks,
+          _response: { next_page: { offset: "page-2" } },
+        })
+        .mockResolvedValueOnce({ data: page2Tasks });
+      mockGetStoriesForTask.mockResolvedValueOnce({ data: [] });
+
+      const batches: ConnectorSyncBatch[] = [];
+      for await (const batch of connector.sync({
+        config: { ...validConfig, tagsToSkip: ["internal"] },
+        credentials,
+        checkpoint: {
+          type: "asana",
+          lastSyncedAt: "2024-01-01T00:00:00.000Z",
+        },
+      })) {
+        batches.push(batch);
+      }
+
+      expect(batches).toHaveLength(2);
+      expect(batches[0].documents).toHaveLength(0);
+      expect(batches[0].checkpoint.lastSyncedAt).toBe(
+        "2024-01-01T00:00:00.000Z",
+      );
+      expect(batches[1].documents).toHaveLength(1);
+      // Final checkpoint still uses the max from the filtered first page.
+      expect(batches[1].checkpoint.lastSyncedAt).toBe(
+        "2024-07-10T10:00:00.000Z",
+      );
+    });
+
+    test("final batch fully filtered by tagsToSkip still advances checkpoint to accumulated max", async () => {
+      const page1Tasks = [
+        makeTask("t1", "Kept", {
+          modified_at: "2024-08-01T10:00:00.000Z",
+        }),
+      ];
+      const page2Tasks = [
+        makeTask("t2", "Skipped last", {
+          tags: ["internal"],
+          modified_at: "2024-08-05T10:00:00.000Z",
+        }),
+      ];
+
+      mockGetTasksForProject
+        .mockResolvedValueOnce({
+          data: page1Tasks,
+          _response: { next_page: { offset: "page-2" } },
+        })
+        .mockResolvedValueOnce({ data: page2Tasks });
+      mockGetStoriesForTask.mockResolvedValueOnce({ data: [] });
+
+      const batches: ConnectorSyncBatch[] = [];
+      for await (const batch of connector.sync({
+        config: { ...validConfig, tagsToSkip: ["internal"] },
+        credentials,
+        checkpoint: null,
+      })) {
+        batches.push(batch);
+      }
+
+      expect(batches).toHaveLength(2);
+      expect(batches[1].documents).toHaveLength(0);
+      expect(batches[1].hasMore).toBe(false);
+      // advanceProgress ran on the filtered task, so max is its modified_at
+      // even though no document was emitted on the final batch.
+      expect(batches[1].checkpoint.lastSyncedAt).toBe(
+        "2024-08-05T10:00:00.000Z",
+      );
+    });
+
+    test("interrupted run does not emit advanced checkpoint (error before final batch)", async () => {
+      // A later page failure must not make the last emitted batch advance the checkpoint.
+      const page1Tasks = [
+        makeTask("t1", "Survived before crash", {
+          modified_at: "2024-09-10T10:00:00.000Z",
+        }),
+      ];
+
+      mockGetTasksForProject
+        .mockResolvedValueOnce({
+          data: page1Tasks,
+          _response: { next_page: { offset: "page-2" } },
+        })
+        .mockRejectedValueOnce(new Error("500 upstream blew up"));
+      mockGetStoriesForTask.mockResolvedValueOnce({ data: [] });
+
+      const batches: ConnectorSyncBatch[] = [];
+      await expect(async () => {
+        for await (const batch of connector.sync({
+          config: validConfig,
+          credentials,
+          checkpoint: {
+            type: "asana",
+            lastSyncedAt: "2024-01-01T00:00:00.000Z",
+          },
+        })) {
+          batches.push(batch);
+        }
+      }).rejects.toThrow("500 upstream blew up");
+
+      expect(batches).toHaveLength(1);
+      expect(batches[0].hasMore).toBe(true);
+      expect(batches[0].checkpoint.lastSyncedAt).toBe(
+        "2024-01-01T00:00:00.000Z",
+      );
+    });
+
     test("project discovery (workspace listing) applies rateLimit", async () => {
       mockGetProjectsForWorkspace
         .mockResolvedValueOnce({
