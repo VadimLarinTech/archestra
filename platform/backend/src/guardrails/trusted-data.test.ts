@@ -410,6 +410,102 @@ describe("trusted-data evaluation (provider-agnostic)", () => {
       });
     });
 
+    test("applies blocked result policies when context starts untrusted", async () => {
+      await TrustedDataPolicyModel.create({
+        toolId,
+        conditions: [
+          { key: "emails[*].from", operator: "contains", value: "hacker" },
+        ],
+        action: "block_always",
+        description: "Block hacker emails",
+      });
+
+      const result = await evaluateIfContextIsTrusted(
+        [
+          { role: "assistant" },
+          {
+            role: "tool",
+            toolCalls: [
+              {
+                id: "call_preexisting_blocked",
+                name: "get_emails",
+                content: {
+                  emails: [{ from: "hacker@evil.com", subject: "Malicious" }],
+                },
+                isError: false,
+              },
+            ],
+          },
+        ],
+        agentId,
+        organizationId,
+        undefined,
+        true,
+        "restrictive",
+        { teamIds: [] },
+        undefined,
+        undefined,
+        "inherited_from_parent",
+      );
+
+      expect(result.contextIsTrusted).toBe(false);
+      expect(result.toolResultUpdates).toEqual({
+        call_preexisting_blocked:
+          "[Content blocked by policy: Data blocked by policy: Block hacker emails]",
+      });
+      expect(result.unsafeContextBoundary).toEqual({
+        kind: "preexisting_untrusted",
+        reason: "inherited_from_parent",
+      });
+    });
+
+    test("keeps preexisting unsafe context unsafe when tool result is trusted", async () => {
+      await TrustedDataPolicyModel.create({
+        toolId,
+        conditions: [
+          {
+            key: "emails[*].from",
+            operator: "endsWith",
+            value: "@trusted.com",
+          },
+        ],
+        action: "mark_as_trusted",
+        description: "Allow trusted emails",
+      });
+
+      const result = await evaluateIfContextIsTrusted(
+        [
+          { role: "assistant" },
+          {
+            role: "tool",
+            toolCalls: [
+              {
+                id: "call_preexisting_trusted",
+                name: "get_emails",
+                content: {
+                  emails: [{ from: "user@trusted.com", subject: "Hello" }],
+                },
+                isError: false,
+              },
+            ],
+          },
+        ],
+        agentId,
+        organizationId,
+        undefined,
+        true,
+        "restrictive",
+        { teamIds: [] },
+      );
+
+      expect(result.contextIsTrusted).toBe(false);
+      expect(result.toolResultUpdates).toEqual({});
+      expect(result.unsafeContextBoundary).toEqual({
+        kind: "preexisting_untrusted",
+        reason: "agent_configured_untrusted",
+      });
+    });
+
     test("handles multiple tool calls with mixed trust", async () => {
       // Create policies
       await TrustedDataPolicyModel.create({
