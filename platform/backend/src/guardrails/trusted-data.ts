@@ -183,13 +183,13 @@ export async function evaluateIfContextIsTrusted(
     );
 
     if (isBlocked) {
-      // Tool result is blocked - replace with blocked message
+      // Tool result is blocked - replace result content with model-facing status
       logger.debug(
         { agentId, toolCallId, reason },
         "[trustedData] evaluateIfContextIsTrusted: tool result blocked by policy",
       );
       toolResultUpdates[toolCallId] =
-        `[Content blocked by policy${reason ? `: ${reason}` : ""}]`;
+        `[Tool call was invoked. Result content was blocked by policy${reason ? `: ${reason}` : ""}]`;
       toolResultIsTrusted = false;
       // Preserve the first point where context became unsafe so the UI can show
       // a stable boundary even if later tool results are also untrusted.

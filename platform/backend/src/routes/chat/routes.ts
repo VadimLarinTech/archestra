@@ -259,8 +259,11 @@ const chatRoutes: FastifyPluginAsyncZod = async (fastify) => {
           "When a tool result includes a UI resource, it means an interactive UI was rendered for the user. Respond with at most one brief sentence. Never describe, list, or explain what the UI shows.";
       }
 
-      const toolDenialInstruction =
-        "When a tool execution is not approved by the user, do not retry it. Explain what happened and ask the user what they'd like to do instead.";
+      const toolDenialInstruction = hasLatestDeniedToolApproval(
+        messages as ChatMessage[],
+      )
+        ? "Tool execution was not approved by the user, do not retry it. Explain what happened and ask the user what they'd like to do instead."
+        : "";
 
       systemPrompt =
         [renderedPrompt, toolDenialInstruction, toolResultInstructions]
@@ -2223,6 +2226,19 @@ const BEDROCK_DOCUMENT_PLACEHOLDER_TEXT =
   "Please review the attached document.";
 const BEDROCK_EMPTY_CONTENT_PLACEHOLDER_TEXT = "(no content)";
 
+function hasLatestDeniedToolApproval(messages: ChatMessage[]): boolean {
+  const latestMessage = messages.at(-1);
+  if (!Array.isArray(latestMessage?.parts)) {
+    return false;
+  }
+
+  return latestMessage.parts.some((part) => {
+    const approval = part.approval as { approved?: unknown } | undefined;
+
+    return part.state === "approval-responded" && approval?.approved === false;
+  });
+}
+
 function normalizeAnthropicFilePart(part: ChatMessagePart): ChatMessagePart {
   if (
     part.type !== "file" ||
@@ -2367,6 +2383,7 @@ async function validateChatApiKeyAccess(
 
 export const __test = {
   getMessagesNotYetPersisted,
+  hasLatestDeniedToolApproval,
   prepareMessagesForProvider,
 };
 

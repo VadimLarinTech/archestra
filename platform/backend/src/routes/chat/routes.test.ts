@@ -235,6 +235,68 @@ describe("prepareMessagesForProvider", () => {
   });
 });
 
+describe("hasLatestDeniedToolApproval", () => {
+  it("returns true for a denied tool approval response", () => {
+    expect(
+      __test.hasLatestDeniedToolApproval([
+        {
+          role: "assistant",
+          parts: [
+            {
+              type: "tool-test",
+              state: "approval-responded",
+              approval: { id: "approval-1", approved: false },
+            },
+          ],
+        },
+      ]),
+    ).toBe(true);
+  });
+
+  it("returns false for approved or pending tool approval responses", () => {
+    expect(
+      __test.hasLatestDeniedToolApproval([
+        {
+          role: "assistant",
+          parts: [
+            {
+              type: "tool-test",
+              state: "approval-responded",
+              approval: { id: "approval-1", approved: true },
+            },
+            {
+              type: "tool-test",
+              state: "approval-requested",
+              approval: { id: "approval-2" },
+            },
+          ],
+        },
+      ]),
+    ).toBe(false);
+  });
+
+  it("returns false when a denied approval is not on the latest message", () => {
+    expect(
+      __test.hasLatestDeniedToolApproval([
+        {
+          role: "assistant",
+          parts: [
+            {
+              type: "tool-test",
+              state: "approval-responded",
+              approval: { id: "approval-1", approved: false },
+            },
+          ],
+        },
+        {
+          role: "user",
+          parts: [{ type: "text", text: "continue" }],
+        },
+      ]),
+    ).toBe(false);
+  });
+});
+
 describe("getMessagesNotYetPersisted", () => {
   it("keeps new messages even when the incoming thread is shorter than the persisted thread", () => {
     const newMessages = __test.getMessagesNotYetPersisted({
