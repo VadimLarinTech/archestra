@@ -1819,6 +1819,16 @@ class ToolModel {
       );
     }
 
+    if (filters?.toolNames?.length) {
+      toolWhereConditions.push(
+        inArray(schema.toolsTable.name, filters.toolNames),
+      );
+    }
+
+    if (filters?.toolIds?.length) {
+      toolWhereConditions.push(inArray(schema.toolsTable.id, filters.toolIds));
+    }
+
     // Filter by origin ("llm-proxy", "agent", or a catalogId)
     if (filters?.origin) {
       if (filters.origin === "llm-proxy") {

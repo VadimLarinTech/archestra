@@ -157,6 +157,7 @@ export const RouteId = {
   DeleteTrustedDataPolicy: "deleteTrustedDataPolicy",
   BulkUpsertDefaultCallPolicy: "bulkUpsertDefaultCallPolicy",
   BulkUpsertDefaultResultPolicy: "bulkUpsertDefaultResultPolicy",
+  RunPolicyDryRun: "runPolicyDryRun",
 
   // Proxy Routes - OpenAI
   OpenAiChatCompletionsWithDefaultAgent:

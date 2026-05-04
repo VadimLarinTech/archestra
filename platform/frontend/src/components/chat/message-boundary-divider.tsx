@@ -6,10 +6,12 @@ import { cn } from "@/lib/utils";
 
 export function MessageBoundaryDivider({
   label,
+  labelPrefix,
   tone = "neutral",
   dividerRef,
 }: {
   label: string;
+  labelPrefix?: string;
   tone?: "neutral" | "warning";
   dividerRef?: Ref<HTMLDivElement>;
 }) {
@@ -27,6 +29,12 @@ export function MessageBoundaryDivider({
         )}
       >
         {isWarning && <TriangleAlert className="size-3.5" />}
+        {labelPrefix ? (
+          <>
+            <span className="font-medium">{labelPrefix}</span>
+            <span>·</span>
+          </>
+        ) : null}
         {label}
         {isWarning && <TriangleAlert className="size-3.5" />}
       </span>
@@ -71,13 +79,16 @@ export function PreexistingUnsafeContextDivider({
 }
 
 export function UnsafeContextStartsHereDivider({
+  labelPrefix,
   dividerRef,
 }: {
+  labelPrefix?: string;
   dividerRef?: Ref<HTMLDivElement>;
 }) {
   return (
     <MessageBoundaryDivider
       label="Sensitive context below"
+      labelPrefix={labelPrefix}
       tone="warning"
       dividerRef={dividerRef}
     />

@@ -4,10 +4,13 @@ import {
   type archestraApiTypes,
   calculateCostSavings,
   DynamicInteraction,
+  isAgentTool,
 } from "@shared";
-import { ArrowLeft, Database, Layers } from "lucide-react";
+import { ArrowLeft, Database, Layers, Shield } from "lucide-react";
 import Link from "next/link";
+import { useCallback, useMemo, useState } from "react";
 import { ErrorBoundary } from "@/app/_parts/error-boundary";
+import { EditPolicyDialog } from "@/components/chat/edit-policy-dialog";
 import { JsonCodeBlock } from "@/components/json-code-block";
 import { LoadingSpinner } from "@/components/loading";
 import MessageThread from "@/components/message-thread";
@@ -24,6 +27,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useInteraction } from "@/lib/interactions/interaction.query";
+import type { PolicyDryRunResponse } from "@/lib/policy.query";
 import { formatDate } from "@/lib/utils";
 
 export function ChatPage({
@@ -59,6 +63,31 @@ function LogDetail({
     interactionId: id,
     initialData: initialData?.interaction,
   });
+  const [isEditPolicyOpen, setIsEditPolicyOpen] = useState(false);
+  const [policyDryRunResult, setPolicyDryRunResult] =
+    useState<PolicyDryRunResponse | null>(null);
+  const policyToolNames = useMemo(() => {
+    if (!dynamicInteraction) {
+      return [];
+    }
+    const interaction = new DynamicInteraction(dynamicInteraction);
+    return [
+      ...new Set([
+        ...interaction.getToolNamesUsed(),
+        ...interaction.getToolNamesRequested(),
+        ...interaction.getToolNamesRefused(),
+      ]),
+    ].filter((toolName) => !isAgentTool(toolName));
+  }, [dynamicInteraction]);
+  const handleClearPolicyImpact = useCallback(() => {
+    setPolicyDryRunResult(null);
+  }, []);
+  const handleDryRunResult = useCallback(
+    (result: PolicyDryRunResponse | null) => {
+      setPolicyDryRunResult(result);
+    },
+    [],
+  );
 
   if (isPending) {
     return <LoadingSpinner />;
@@ -76,6 +105,7 @@ function LogDetail({
   );
   const toolsUsed = interaction.getToolNamesUsed();
   const toolsBlocked = interaction.getToolNamesRefused();
+  const hasPolicyTools = policyToolNames.length > 0;
   const isDualLlmRelevant = interaction.isLastMessageToolCall();
   const lastToolCallId = interaction.getLastToolCallId();
   const allDualLlmAnalyses = dynamicInteraction.dualLlmAnalyses ?? [];
@@ -241,7 +271,19 @@ function LogDetail({
 
         {requestMessages.length > 0 && (
           <div className="mb-8">
-            <h2 className="text-xl font-semibold mb-4">Conversation</h2>
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <h2 className="text-xl font-semibold">Conversation</h2>
+              {hasPolicyTools ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setIsEditPolicyOpen(true)}
+                >
+                  <Shield className="h-4 w-4 mr-2" />
+                  Chat policies
+                </Button>
+              ) : null}
+            </div>
             <div className="border border-border rounded-lg bg-background overflow-hidden">
               <MessageThread
                 messages={requestMessages}
@@ -249,10 +291,23 @@ function LogDetail({
                 hideDivider={true}
                 profileId={agent?.id}
                 unsafeContextBoundary={dynamicInteraction.unsafeContextBoundary}
+                policyImpactResult={policyDryRunResult}
+                onClearPolicyImpact={handleClearPolicyImpact}
               />
             </div>
           </div>
         )}
+        {hasPolicyTools ? (
+          <EditPolicyDialog
+            open={isEditPolicyOpen}
+            onOpenChange={setIsEditPolicyOpen}
+            profileId={dynamicInteraction.profileId ?? undefined}
+            toolName={policyToolNames[0]}
+            toolNames={policyToolNames}
+            dryRunScope={{ interactionId: dynamicInteraction.id }}
+            onDryRunResult={handleDryRunResult}
+          />
+        ) : null}
 
         <div>
           <h2 className="text-xl font-semibold mb-4">Raw Data</h2>

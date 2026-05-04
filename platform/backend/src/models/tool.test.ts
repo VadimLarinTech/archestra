@@ -2884,6 +2884,40 @@ describe("ToolModel", () => {
   });
 
   describe("findAllWithAssignments", () => {
+    test("filters exact tool names", async ({
+      makeAdmin,
+      makeAgent,
+      makeAgentTool,
+    }) => {
+      const admin = await makeAdmin();
+      const agent = await makeAgent({ name: "ScopedToolAgent" });
+      const includedToolNames = [
+        "scoped-policy-tool-a",
+        "scoped-policy-tool-b",
+      ];
+      const excludedToolName = "scoped-policy-tool-c";
+
+      for (const name of [...includedToolNames, excludedToolName]) {
+        const tool = await ToolModel.create({
+          name,
+          description: `Description for ${name}`,
+          parameters: {},
+        });
+        await makeAgentTool(agent.id, tool.id);
+      }
+
+      const result = await ToolModel.findAllWithAssignments({
+        filters: { toolNames: includedToolNames },
+        sorting: { sortBy: "name", sortDirection: "asc" },
+        userId: admin.id,
+        isAgentAdmin: true,
+      });
+
+      expect(result.data.map((tool) => tool.name)).toEqual(includedToolNames);
+      expect(result.pagination.total).toBe(2);
+      expect(result.pagination.hasNext).toBe(false);
+    });
+
     test("returns deterministic order for tools with identical createdAt timestamps", async ({
       makeAdmin,
       makeAgent,

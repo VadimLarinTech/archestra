@@ -3,10 +3,15 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderHook } from "@testing-library/react";
 import type React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { useCallPolicyMutation, useResultPolicyMutation } from "./policy.query";
+import {
+  useCallPolicyMutation,
+  usePolicyDryRunMutation,
+  useResultPolicyMutation,
+} from "./policy.query";
 import { handleApiError } from "./utils";
 
 const mockToastSuccess = vi.fn();
+const mockToastError = vi.fn();
 
 vi.mock("@shared", async () => {
   const actual = await vi.importActual("@shared");
@@ -17,6 +22,7 @@ vi.mock("@shared", async () => {
       updateToolInvocationPolicy: vi.fn(),
       createTrustedDataPolicy: vi.fn(),
       updateTrustedDataPolicy: vi.fn(),
+      runPolicyDryRun: vi.fn(),
     },
   };
 });
@@ -24,7 +30,7 @@ vi.mock("@shared", async () => {
 vi.mock("sonner", () => ({
   toast: {
     success: (...args: unknown[]) => mockToastSuccess(...args),
-    error: vi.fn(),
+    error: (...args: unknown[]) => mockToastError(...args),
   },
 }));
 
@@ -99,5 +105,28 @@ describe("policy row update mutations", () => {
     expect(mutationResult).toBe(true);
     expect(mockToastSuccess).toHaveBeenCalledWith("Result policy updated");
     expect(handleApiError).not.toHaveBeenCalled();
+  });
+
+  it("can suppress dry-run error toasts for bulk preview flows", async () => {
+    vi.mocked(archestraApiSdk.runPolicyDryRun).mockResolvedValue({
+      error: "dry run unavailable",
+    } as unknown as Awaited<
+      ReturnType<typeof archestraApiSdk.runPolicyDryRun>
+    >);
+
+    const { result } = renderHook(
+      () => usePolicyDryRunMutation({ showErrorToast: false }),
+      {
+        wrapper: createWrapper(),
+      },
+    );
+
+    await expect(
+      result.current.mutateAsync({
+        policyFamily: "tool_call",
+        limit: 1,
+      }),
+    ).rejects.toThrow("dry run unavailable");
+    expect(mockToastError).not.toHaveBeenCalled();
   });
 });

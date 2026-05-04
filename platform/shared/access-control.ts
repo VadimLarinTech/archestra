@@ -473,6 +473,10 @@ export const requiredEndpointPermissionsMap: Partial<
   [RouteId.BulkUpsertDefaultResultPolicy]: {
     toolPolicy: ["update"],
   },
+  [RouteId.RunPolicyDryRun]: {
+    toolPolicy: ["read"],
+    log: ["read"],
+  },
   [RouteId.GetInternalMcpCatalog]: {
     mcpRegistry: ["read"],
   },

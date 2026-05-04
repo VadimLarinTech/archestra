@@ -29,6 +29,7 @@ export function useToolsWithAssignments({
   pagination,
   sorting,
   filters,
+  enabled = true,
 }: {
   initialData?: archestraApiTypes.GetToolsWithAssignmentsResponses["200"];
   pagination?: {
@@ -45,7 +46,10 @@ export function useToolsWithAssignments({
     search?: string;
     origin?: string;
     excludeArchestraTools?: boolean;
+    toolNames?: string[];
+    toolIds?: string[];
   };
+  enabled?: boolean;
 }) {
   return useQuery({
     queryKey: [
@@ -58,6 +62,8 @@ export function useToolsWithAssignments({
         search: filters?.search,
         origin: filters?.origin,
         excludeArchestraTools: filters?.excludeArchestraTools,
+        toolNames: filters?.toolNames,
+        toolIds: filters?.toolIds,
       },
     ],
     queryFn: async () => {
@@ -70,6 +76,8 @@ export function useToolsWithAssignments({
           search: filters?.search,
           origin: filters?.origin,
           excludeArchestraTools: filters?.excludeArchestraTools,
+          toolNames: filters?.toolNames,
+          toolIds: filters?.toolIds,
         },
       });
       return (
@@ -87,5 +95,6 @@ export function useToolsWithAssignments({
       );
     },
     initialData,
+    enabled,
   });
 }

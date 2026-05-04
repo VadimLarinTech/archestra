@@ -14477,6 +14477,373 @@ export type GetOperatorsResponses = {
 
 export type GetOperatorsResponse = GetOperatorsResponses[keyof GetOperatorsResponses];
 
+export type RunPolicyDryRunData = {
+    body: {
+        profileId?: string;
+        sessionId?: string;
+        interactionId?: string;
+        toolName?: string;
+        toolNames?: Array<string>;
+        toolIds?: Array<string>;
+        limit?: number;
+        startDate?: unknown;
+        endDate?: unknown;
+        policyFamily: 'tool_call';
+        toolInvocationPolicyReplacements?: Array<{
+            toolId: string;
+            policies: Array<{
+                id?: string;
+                toolId: string;
+                conditions: Array<{
+                    key: string;
+                    operator: 'equal' | 'notEqual' | 'contains' | 'notContains' | 'startsWith' | 'endsWith' | 'regex';
+                    value: string;
+                }>;
+                action: 'allow_when_context_is_untrusted' | 'block_when_context_is_untrusted' | 'block_always' | 'require_approval';
+                reason?: string | null;
+            }>;
+        }>;
+        toolInvocationDefaultActions?: Array<{
+            toolId: string;
+            action: 'allow_when_context_is_untrusted' | 'block_when_context_is_untrusted' | 'block_always' | 'require_approval';
+        }>;
+    } | {
+        profileId?: string;
+        sessionId?: string;
+        interactionId?: string;
+        toolName?: string;
+        toolNames?: Array<string>;
+        toolIds?: Array<string>;
+        limit?: number;
+        startDate?: unknown;
+        endDate?: unknown;
+        policyFamily: 'tool_result';
+        trustedDataPolicyReplacements?: Array<{
+            toolId: string;
+            policies: Array<{
+                id?: string;
+                toolId: string;
+                description?: string | null;
+                conditions: Array<{
+                    key: string;
+                    operator: 'equal' | 'notEqual' | 'contains' | 'notContains' | 'startsWith' | 'endsWith' | 'regex';
+                    value: string;
+                }>;
+                action: 'block_always' | 'mark_as_trusted' | 'mark_as_untrusted' | 'sanitize_with_dual_llm';
+            }>;
+        }>;
+        trustedDataDefaultActions?: Array<{
+            toolId: string;
+            action: 'block_always' | 'mark_as_trusted' | 'mark_as_untrusted' | 'sanitize_with_dual_llm';
+        }>;
+    } | {
+        profileId?: string;
+        sessionId?: string;
+        interactionId?: string;
+        toolName?: string;
+        toolNames?: Array<string>;
+        toolIds?: Array<string>;
+        limit?: number;
+        startDate?: unknown;
+        endDate?: unknown;
+        policyFamily: 'combined';
+        toolInvocationPolicyReplacements?: Array<{
+            toolId: string;
+            policies: Array<{
+                id?: string;
+                toolId: string;
+                conditions: Array<{
+                    key: string;
+                    operator: 'equal' | 'notEqual' | 'contains' | 'notContains' | 'startsWith' | 'endsWith' | 'regex';
+                    value: string;
+                }>;
+                action: 'allow_when_context_is_untrusted' | 'block_when_context_is_untrusted' | 'block_always' | 'require_approval';
+                reason?: string | null;
+            }>;
+        }>;
+        trustedDataPolicyReplacements?: Array<{
+            toolId: string;
+            policies: Array<{
+                id?: string;
+                toolId: string;
+                description?: string | null;
+                conditions: Array<{
+                    key: string;
+                    operator: 'equal' | 'notEqual' | 'contains' | 'notContains' | 'startsWith' | 'endsWith' | 'regex';
+                    value: string;
+                }>;
+                action: 'block_always' | 'mark_as_trusted' | 'mark_as_untrusted' | 'sanitize_with_dual_llm';
+            }>;
+        }>;
+        toolInvocationDefaultActions?: Array<{
+            toolId: string;
+            action: 'allow_when_context_is_untrusted' | 'block_when_context_is_untrusted' | 'block_always' | 'require_approval';
+        }>;
+        trustedDataDefaultActions?: Array<{
+            toolId: string;
+            action: 'block_always' | 'mark_as_trusted' | 'mark_as_untrusted' | 'sanitize_with_dual_llm';
+        }>;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/autonomy-policies/dry-run';
+};
+
+export type RunPolicyDryRunErrors = {
+    /**
+     * Default Response
+     */
+    400: {
+        error: {
+            message: string;
+            type: 'api_validation_error';
+            internal_code?: string;
+        };
+    };
+    /**
+     * Default Response
+     */
+    401: {
+        error: {
+            message: string;
+            type: 'api_authentication_error';
+            internal_code?: string;
+        };
+    };
+    /**
+     * Default Response
+     */
+    403: {
+        error: {
+            message: string;
+            type: 'api_authorization_error';
+            internal_code?: string;
+        };
+    };
+    /**
+     * Default Response
+     */
+    404: {
+        error: {
+            message: string;
+            type: 'api_not_found_error';
+            internal_code?: string;
+        };
+    };
+    /**
+     * Default Response
+     */
+    409: {
+        error: {
+            message: string;
+            type: 'api_conflict_error';
+            internal_code?: string;
+        };
+    };
+    /**
+     * Default Response
+     */
+    500: {
+        error: {
+            message: string;
+            type: 'api_internal_server_error';
+            internal_code?: string;
+        };
+    };
+};
+
+export type RunPolicyDryRunError = RunPolicyDryRunErrors[keyof RunPolicyDryRunErrors];
+
+export type RunPolicyDryRunResponses = {
+    /**
+     * Default Response
+     */
+    200: {
+        policyFamily: 'tool_call' | 'tool_result' | 'combined';
+        filters: {
+            profileId?: string;
+            sessionId?: string;
+            interactionId?: string;
+            toolName?: string;
+            toolNames?: Array<string>;
+            toolIds?: Array<string>;
+            limit: number;
+            startDate?: string;
+            endDate?: string;
+        };
+        safety: {
+            livePoliciesMutated: false;
+            liveToolsExecuted: false;
+            llmCallsExecuted: false;
+            rawPayloadsReturned: false;
+        };
+        extractionSummary: {
+            interactionsScanned: number;
+            casesBuilt: number;
+            completeCases: number;
+            partialCases: number;
+            unsupportedCases: number;
+            completeSteps: number;
+            missingPolicyInputSteps: number;
+            unsupportedSteps: number;
+        };
+        result: {
+            policyFamily: 'tool_call' | 'tool_result' | 'combined';
+            summary: {
+                evaluatedCases: number;
+                skippedCases: number;
+                evaluatedSteps: number;
+                unsupportedSteps: number;
+                missingPolicyInputSteps: number;
+                affectedCases: number;
+                affectedSessions: number;
+                affectedToolCalls: number;
+                affectedToolInteractions: number;
+                newlyBlocked: number;
+                newlyRequireApproval: number;
+                lessRestrictive: number;
+                resultsNewlyBlocked: number;
+                resultsNowAvailable: number;
+                resultsNowSafe: number;
+                resultsNowSensitive: number;
+                resultsReclassified: number;
+                trustStateChanged: number;
+                firstDownstreamAffected: number;
+                counterfactualSteps: number;
+            };
+            cases: Array<{
+                caseId: string;
+                replayability: 'complete' | 'partial' | 'unsupported';
+                records: Array<{
+                    caseId: string;
+                    stepId: string;
+                    stepOrder: number;
+                    stepType: 'tool_call' | 'tool_result' | 'refusal' | 'unsupported';
+                    policyFamily: 'tool_call' | 'tool_result' | 'combined';
+                    currentOutcome?: 'allow' | 'require_approval' | 'block' | 'incomplete' | 'unsupported' | 'trusted' | 'untrusted' | 'blocked' | 'sanitize_with_dual_llm';
+                    draftOutcome?: 'allow' | 'require_approval' | 'block' | 'incomplete' | 'unsupported' | 'trusted' | 'untrusted' | 'blocked' | 'sanitize_with_dual_llm';
+                    changed: boolean;
+                    category: 'unchanged' | 'newly_blocked' | 'newly_require_approval' | 'less_restrictive' | 'result_newly_blocked' | 'result_now_available' | 'result_now_safe' | 'result_now_sensitive' | 'result_reclassified' | 'missing_policy_input' | 'unsupported';
+                    currentReason?: {
+                        code: string;
+                        message: string;
+                        matchedPolicyId?: string;
+                        matchedPolicyAction?: string;
+                        matchedConditionKeys?: Array<string>;
+                        fallbackDecision: boolean;
+                    };
+                    draftReason?: {
+                        code: string;
+                        message: string;
+                        matchedPolicyId?: string;
+                        matchedPolicyAction?: string;
+                        matchedConditionKeys?: Array<string>;
+                        fallbackDecision: boolean;
+                    };
+                    trustBefore: {
+                        current: boolean;
+                        draft: boolean;
+                    };
+                    trustAfter: {
+                        current: boolean;
+                        draft: boolean;
+                    };
+                    completeness: 'complete' | 'missing_policy_input' | 'unsupported';
+                    confidence: 'high_confidence' | 'partial' | 'unsupported';
+                    reasons: Array<string>;
+                    sourceArtifact: {
+                        interactionId: string;
+                        field: 'request' | 'processedRequest' | 'response';
+                        providerType: string;
+                    };
+                    stepPreview: {
+                        title: string;
+                        toolName?: string;
+                        toolCallId?: string;
+                        target?: string;
+                        safeIdentifiers: Array<{
+                            label: string;
+                            value: string;
+                        }>;
+                        hiddenInputFields: Array<string>;
+                        rawResultHidden: boolean;
+                        note: string;
+                    };
+                    counterfactual: boolean;
+                    firstDivergence: boolean;
+                    firstResultReclassification: boolean;
+                    firstDownstreamAffectedStep: boolean;
+                }>;
+                firstDivergenceStepId?: string;
+                firstResultReclassificationStepId?: string;
+                firstDownstreamAffectedStepId?: string;
+            }>;
+            representativeExample?: {
+                caseId: string;
+                stepId: string;
+                stepOrder: number;
+                stepType: 'tool_call' | 'tool_result' | 'refusal' | 'unsupported';
+                policyFamily: 'tool_call' | 'tool_result' | 'combined';
+                currentOutcome?: 'allow' | 'require_approval' | 'block' | 'incomplete' | 'unsupported' | 'trusted' | 'untrusted' | 'blocked' | 'sanitize_with_dual_llm';
+                draftOutcome?: 'allow' | 'require_approval' | 'block' | 'incomplete' | 'unsupported' | 'trusted' | 'untrusted' | 'blocked' | 'sanitize_with_dual_llm';
+                changed: boolean;
+                category: 'unchanged' | 'newly_blocked' | 'newly_require_approval' | 'less_restrictive' | 'result_newly_blocked' | 'result_now_available' | 'result_now_safe' | 'result_now_sensitive' | 'result_reclassified' | 'missing_policy_input' | 'unsupported';
+                currentReason?: {
+                    code: string;
+                    message: string;
+                    matchedPolicyId?: string;
+                    matchedPolicyAction?: string;
+                    matchedConditionKeys?: Array<string>;
+                    fallbackDecision: boolean;
+                };
+                draftReason?: {
+                    code: string;
+                    message: string;
+                    matchedPolicyId?: string;
+                    matchedPolicyAction?: string;
+                    matchedConditionKeys?: Array<string>;
+                    fallbackDecision: boolean;
+                };
+                trustBefore: {
+                    current: boolean;
+                    draft: boolean;
+                };
+                trustAfter: {
+                    current: boolean;
+                    draft: boolean;
+                };
+                completeness: 'complete' | 'missing_policy_input' | 'unsupported';
+                confidence: 'high_confidence' | 'partial' | 'unsupported';
+                reasons: Array<string>;
+                sourceArtifact: {
+                    interactionId: string;
+                    field: 'request' | 'processedRequest' | 'response';
+                    providerType: string;
+                };
+                stepPreview: {
+                    title: string;
+                    toolName?: string;
+                    toolCallId?: string;
+                    target?: string;
+                    safeIdentifiers: Array<{
+                        label: string;
+                        value: string;
+                    }>;
+                    hiddenInputFields: Array<string>;
+                    rawResultHidden: boolean;
+                    note: string;
+                };
+                counterfactual: boolean;
+                firstDivergence: boolean;
+                firstResultReclassification: boolean;
+                firstDownstreamAffectedStep: boolean;
+            };
+        };
+    };
+};
+
+export type RunPolicyDryRunResponse = RunPolicyDryRunResponses[keyof RunPolicyDryRunResponses];
+
 export type GetToolInvocationPoliciesData = {
     body?: never;
     path?: never;
@@ -43888,6 +44255,14 @@ export type GetToolsWithAssignmentsData = {
          * Hide built-in Archestra tools
          */
         excludeArchestraTools?: boolean;
+        /**
+         * Exact tool names to include
+         */
+        toolNames?: Array<string>;
+        /**
+         * Exact tool IDs to include
+         */
+        toolIds?: Array<string>;
         limit?: number;
         offset?: number;
     };

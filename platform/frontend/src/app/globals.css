@@ -180,6 +180,22 @@
     0% { opacity: 1; }
     50% { opacity: 0; }
   }
+  @keyframes policy-collapsible-down {
+    from {
+      height: 0;
+    }
+    to {
+      height: var(--radix-collapsible-content-height);
+    }
+  }
+  @keyframes policy-collapsible-up {
+    from {
+      height: var(--radix-collapsible-content-height);
+    }
+    to {
+      height: 0;
+    }
+  }
   /* Fix autofill styles for dark theme - browsers apply light backgrounds on autofill */
   input:-webkit-autofill,
   input:-webkit-autofill:hover,

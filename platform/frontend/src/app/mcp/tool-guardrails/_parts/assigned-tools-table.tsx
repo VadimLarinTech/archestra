@@ -19,9 +19,11 @@ import {
   Network,
   Pencil,
   Wand2,
+  X,
 } from "lucide-react";
-import { useCallback, useMemo, useState } from "react";
+import { type ReactNode, useCallback, useId, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { getChangedDryRunRecords } from "@/app/mcp/tool-guardrails/_parts/policy-dry-run";
 import { LoadingSpinner } from "@/components/loading";
 import { McpCatalogIcon } from "@/components/mcp-catalog-icon";
 import { PermissivePolicyOverlay } from "@/components/permissive-policy-overlay";
@@ -32,6 +34,11 @@ import { TruncatedText } from "@/components/truncated-text";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { DataTable } from "@/components/ui/data-table";
 import { PermissionButton } from "@/components/ui/permission-button";
 import { SearchableSelect } from "@/components/ui/searchable-select";
@@ -42,6 +49,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import {
   Tooltip,
   TooltipContent,
@@ -57,9 +65,12 @@ import { useAutoConfigurePolicies } from "@/lib/agent-tools.query";
 import { useDataTableQueryParams } from "@/lib/hooks/use-data-table-query-params";
 import { useInternalMcpCatalog } from "@/lib/mcp/internal-mcp-catalog.query";
 import {
+  type PolicyDryRunDecisionRecord,
+  type PolicyDryRunResponse,
   useBulkCallPolicyMutation,
   useBulkResultPolicyMutation,
   useCallPolicyMutation,
+  usePolicyDryRunMutation,
   useResultPolicyMutation,
   useToolInvocationPolicies,
   useToolResultPolicies,
@@ -76,6 +87,7 @@ import {
   useToolsWithAssignments,
 } from "@/lib/tools/tool.query";
 import { isMcpToolByProperties } from "@/lib/tools/tool.utils";
+import { getToolSourceName } from "@/lib/tools/tool-source";
 import type { ToolsInitialData } from "../types";
 import { getVisibleCatalogSources } from "./assigned-tools-table.utils";
 import { CallPolicyToggle } from "./call-policy-toggle";
@@ -95,6 +107,13 @@ interface AssignedToolsTableProps {
   initialData?: ToolsInitialData;
 }
 
+type BulkImpactReport = {
+  result: PolicyDryRunResponse | null;
+  tools: ToolWithAssignmentsData[];
+  field: "callPolicy" | "resultPolicyAction";
+  action: CallPolicyAction | ResultPolicyAction;
+};
+
 function SortIcon({
   isSorted,
 }: {
@@ -113,6 +132,271 @@ function SortIcon({
   );
 }
 
+function BulkImpactInlineReport({
+  report,
+  onClear,
+  internalMcpCatalogItems,
+}: {
+  report: BulkImpactReport;
+  onClear: () => void;
+  internalMcpCatalogItems?: archestraApiTypes.GetInternalMcpCatalogResponses["200"];
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const detailsId = useId();
+  const recordsByToolName = new Map<string, PolicyDryRunDecisionRecord[]>();
+  const changedRecordsByToolName = new Map<
+    string,
+    PolicyDryRunDecisionRecord[]
+  >();
+  if (report.result) {
+    for (const policyCase of report.result.result.cases) {
+      for (const record of policyCase.records) {
+        const toolName = record.stepPreview.toolName;
+        if (!toolName) {
+          continue;
+        }
+        const records = recordsByToolName.get(toolName) ?? [];
+        records.push(record);
+        recordsByToolName.set(toolName, records);
+      }
+    }
+    for (const record of getChangedDryRunRecords(report.result)) {
+      const toolName = record.stepPreview.toolName;
+      if (!toolName) {
+        continue;
+      }
+      const records = changedRecordsByToolName.get(toolName) ?? [];
+      records.push(record);
+      changedRecordsByToolName.set(toolName, records);
+    }
+  }
+  const affectedToolInteractions =
+    report.result?.result.summary.affectedToolInteractions ?? 0;
+  const hasSupportedTools = report.tools.some(isMcpToolByProperties);
+  const summaryText = !report.result
+    ? hasSupportedTools
+      ? "Historical impact unavailable."
+      : "No supported sources to evaluate."
+    : affectedToolInteractions === 0
+      ? "No changes found."
+      : `${affectedToolInteractions} affected tool interaction${affectedToolInteractions === 1 ? "" : "s"}.`;
+
+  return (
+    <Collapsible open={isOpen} onOpenChange={setIsOpen}>
+      <div className="rounded-lg border border-border bg-muted/30 text-sm">
+        <div className="flex items-start gap-2 p-3">
+          <CollapsibleTrigger asChild>
+            <button
+              type="button"
+              aria-controls={detailsId}
+              aria-expanded={isOpen}
+              className="flex min-w-0 flex-1 items-start justify-between gap-3 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <span className="min-w-0">
+                <span className="block font-medium">Historical impact</span>
+                <span className="block text-xs text-muted-foreground">
+                  {formatBulkAction(report)}. {summaryText}
+                </span>
+              </span>
+              <span className="flex h-7 shrink-0 items-center gap-1 rounded-md px-2 text-xs font-medium text-muted-foreground">
+                {isOpen ? "Hide" : "Details"}
+                {isOpen ? (
+                  <ChevronUp className="h-3.5 w-3.5" />
+                ) : (
+                  <ChevronDown className="h-3.5 w-3.5" />
+                )}
+              </span>
+            </button>
+          </CollapsibleTrigger>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-8 w-8 shrink-0 p-0"
+            onClick={onClear}
+          >
+            <X className="h-4 w-4" />
+            <span className="sr-only">Clear impact report</span>
+          </Button>
+        </div>
+        <SmoothBulkImpactContent id={detailsId}>
+          <div className="px-3 pb-3">
+            <div className="divide-y rounded-md border bg-background/70">
+              {report.tools.map((tool) => {
+                const records = recordsByToolName.get(tool.name) ?? [];
+                const toolChangedRecords =
+                  changedRecordsByToolName.get(tool.name) ?? [];
+                const firstChangedRecord = toolChangedRecords[0];
+
+                return (
+                  <div
+                    key={tool.id}
+                    className="grid min-w-0 gap-2 p-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
+                  >
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span className="truncate text-xs font-medium">
+                        {parseFullToolName(tool.name).toolName || tool.name}
+                      </span>
+                      <Badge
+                        variant="outline"
+                        className="h-5 px-1.5 text-[10px]"
+                      >
+                        {getToolSourceName(tool, internalMcpCatalogItems)}
+                      </Badge>
+                    </div>
+                    {!isMcpToolByProperties(tool) ? (
+                      <Badge
+                        variant="secondary"
+                        className="h-5 px-1.5 text-[10px]"
+                      >
+                        Unsupported source
+                      </Badge>
+                    ) : !report.result ? (
+                      <Badge
+                        variant="secondary"
+                        className="h-5 px-1.5 text-[10px]"
+                      >
+                        Impact unavailable
+                      </Badge>
+                    ) : firstChangedRecord ? (
+                      <div className="flex flex-wrap items-center gap-1">
+                        <Badge
+                          variant="outline"
+                          className="h-5 px-1.5 text-[10px]"
+                        >
+                          {formatRecordTransition(firstChangedRecord)}
+                        </Badge>
+                        {toolChangedRecords.length > 1 ? (
+                          <div className="text-[11px] text-muted-foreground">
+                            +{toolChangedRecords.length - 1} more
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : (
+                      <Badge
+                        variant="secondary"
+                        className="h-5 px-1.5 text-[10px]"
+                      >
+                        {records.length === 0 ? "No history" : "No change"}
+                      </Badge>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </SmoothBulkImpactContent>
+      </div>
+    </Collapsible>
+  );
+}
+
+function SmoothBulkImpactContent({
+  id,
+  children,
+}: {
+  id: string;
+  children: ReactNode;
+}) {
+  return (
+    <CollapsibleContent
+      id={id}
+      className="overflow-hidden data-[state=closed]:animate-[policy-collapsible-up_200ms_ease-out] data-[state=open]:animate-[policy-collapsible-down_200ms_ease-out] motion-reduce:animate-none"
+    >
+      {children}
+    </CollapsibleContent>
+  );
+}
+
+function formatBulkAction(report: BulkImpactReport) {
+  const target =
+    report.field === "callPolicy" ? "Call Policy" : "Result Policy";
+  return `${target} -> ${formatPolicyAction(report.action)}`;
+}
+
+function formatPolicyAction(action: CallPolicyAction | ResultPolicyAction) {
+  switch (action) {
+    case "allow_when_context_is_untrusted":
+      return "Always";
+    case "block_when_context_is_untrusted":
+      return "Safe only";
+    case "require_approval":
+      return "Require approval";
+    case "block_always":
+      return "Block";
+    case "mark_as_trusted":
+      return "Safe";
+    case "mark_as_untrusted":
+      return "Sensitive";
+    case "sanitize_with_dual_llm":
+      return "Dual LLM";
+    default:
+      return action;
+  }
+}
+
+function formatRecordTransition(record: PolicyDryRunDecisionRecord) {
+  const current = formatRecordOutcome(record.currentOutcome);
+  const draft = formatRecordOutcome(record.draftOutcome);
+  if (current && draft && current !== draft) {
+    return `${current} -> ${draft}`;
+  }
+
+  const currentAction = formatMatchedPolicyAction(
+    record.currentReason?.matchedPolicyAction,
+  );
+  const draftAction = formatMatchedPolicyAction(
+    record.draftReason?.matchedPolicyAction,
+  );
+  if ((currentAction || draftAction) && currentAction !== draftAction) {
+    return `${currentAction ?? current ?? "Current"} -> ${draftAction ?? draft ?? "Draft"}`;
+  }
+
+  return draft ?? current ?? "Changed";
+}
+
+function formatRecordOutcome(outcome: string | undefined) {
+  switch (outcome) {
+    case "allow":
+      return "Allow";
+    case "require_approval":
+      return "Approval";
+    case "block":
+      return "Block";
+    case "trusted":
+      return "Safe";
+    case "untrusted":
+      return "Sensitive";
+    case "blocked":
+      return "Blocked";
+    case "sanitize_with_dual_llm":
+      return "Dual LLM";
+    default:
+      return undefined;
+  }
+}
+
+function formatMatchedPolicyAction(action: string | undefined) {
+  switch (action) {
+    case "allow_when_context_is_untrusted":
+      return "Always";
+    case "block_when_context_is_untrusted":
+      return "Safe only";
+    case "require_approval":
+      return "Require approval";
+    case "block_always":
+      return "Block";
+    case "mark_as_trusted":
+      return "Safe";
+    case "mark_as_untrusted":
+      return "Sensitive";
+    case "sanitize_with_dual_llm":
+      return "Dual LLM";
+    default:
+      return undefined;
+  }
+}
+
 export function AssignedToolsTable({
   onToolClick,
   initialData,
@@ -121,6 +405,7 @@ export function AssignedToolsTable({
   const resultPolicyMutation = useResultPolicyMutation();
   const bulkCallPolicyMutation = useBulkCallPolicyMutation();
   const bulkResultPolicyMutation = useBulkResultPolicyMutation();
+  const bulkDryRunMutation = usePolicyDryRunMutation({ showErrorToast: false });
   const autoConfigureMutation = useAutoConfigurePolicies();
   const { data: invocationPolicies } = useToolInvocationPolicies(
     initialData?.toolInvocationPolicies,
@@ -169,6 +454,9 @@ export function AssignedToolsTable({
   const [bulkCallPolicyValue, setBulkCallPolicyValue] = useState<string>("");
   const [bulkResultPolicyValue, setBulkResultPolicyValue] =
     useState<string>("");
+  const [showBulkImpact, setShowBulkImpact] = useState(false);
+  const [bulkImpactReport, setBulkImpactReport] =
+    useState<BulkImpactReport | null>(null);
 
   // Fetch tools with assignments with server-side pagination, filtering, and sorting
   // Only use initialData for first page with default sorting and no filters
@@ -206,6 +494,8 @@ export function AssignedToolsTable({
       setSelectedTools([]);
       setBulkCallPolicyValue("");
       setBulkResultPolicyValue("");
+      setShowBulkImpact(false);
+      setBulkImpactReport(null);
 
       setPagination(newPagination);
     },
@@ -217,11 +507,15 @@ export function AssignedToolsTable({
       setRowSelection(newRowSelection);
       setBulkCallPolicyValue("");
       setBulkResultPolicyValue("");
+      setBulkImpactReport(null);
 
       const newSelectedTools = Object.keys(newRowSelection)
         .map((rowId) => tools.find((tool) => tool.id === rowId))
         .filter((tool): tool is ToolWithAssignmentsData => Boolean(tool));
 
+      if (newSelectedTools.length === 0) {
+        setShowBulkImpact(false);
+      }
       setSelectedTools(newSelectedTools);
     },
     [tools],
@@ -232,6 +526,8 @@ export function AssignedToolsTable({
     setSelectedTools([]);
     setBulkCallPolicyValue("");
     setBulkResultPolicyValue("");
+    setShowBulkImpact(false);
+    setBulkImpactReport(null);
   }, []);
 
   const handleOriginFilterChange = useCallback(
@@ -245,6 +541,8 @@ export function AssignedToolsTable({
       setSelectedTools([]);
       setBulkCallPolicyValue("");
       setBulkResultPolicyValue("");
+      setShowBulkImpact(false);
+      setBulkImpactReport(null);
     },
     [updateQueryParams],
   );
@@ -277,6 +575,7 @@ export function AssignedToolsTable({
         });
         setRowSelection(newSelection);
       }
+      setBulkImpactReport(null);
     },
     [updateQueryParams, rowSelection, tools],
   );
@@ -287,27 +586,64 @@ export function AssignedToolsTable({
       value: CallPolicyAction | ResultPolicyAction,
     ) => {
       // Filter out tools with custom policies (non-empty conditions)
-      const toolIds = selectedTools
-        .filter((tool) => {
-          const policies =
-            field === "callPolicy"
-              ? invocationPolicies?.byProfileToolId[tool.id] || []
-              : resultPolicies?.byProfileToolId[tool.id] || [];
+      const toolsForUpdate = selectedTools.filter((tool) => {
+        const policies =
+          field === "callPolicy"
+            ? invocationPolicies?.byProfileToolId[tool.id] || []
+            : resultPolicies?.byProfileToolId[tool.id] || [];
 
-          // Check if tool has custom policies (non-empty conditions array)
-          const hasCustomPolicy = policies.some(
-            (policy) => policy.conditions.length > 0,
-          );
+        // Check if tool has custom policies (non-empty conditions array)
+        const hasCustomPolicy = policies.some(
+          (policy) => policy.conditions.length > 0,
+        );
 
-          return !hasCustomPolicy;
-        })
-        .map((tool) => tool.id);
+        return !hasCustomPolicy;
+      });
+      const toolIds = toolsForUpdate.map((tool) => tool.id);
 
       if (toolIds.length === 0) {
         return;
       }
       try {
         setIsBulkUpdating(true);
+        let impactResult: PolicyDryRunResponse | null = null;
+        const toolsForImpact = toolsForUpdate.filter(isMcpToolByProperties);
+        const hasUnsupportedImpactTools =
+          toolsForImpact.length < toolsForUpdate.length;
+        if (showBulkImpact) {
+          try {
+            if (toolsForImpact.length > 0) {
+              const toolIdsForImpact = toolsForImpact.map((tool) => tool.id);
+              impactResult = await bulkDryRunMutation.mutateAsync(
+                field === "callPolicy"
+                  ? {
+                      policyFamily: "tool_call",
+                      toolIds: toolIdsForImpact,
+                      limit: 500,
+                      toolInvocationDefaultActions: toolIdsForImpact.map(
+                        (toolId) => ({
+                          toolId,
+                          action: value as CallPolicyAction,
+                        }),
+                      ),
+                    }
+                  : {
+                      policyFamily: "tool_result",
+                      toolIds: toolIdsForImpact,
+                      limit: 500,
+                      trustedDataDefaultActions: toolIdsForImpact.map(
+                        (toolId) => ({
+                          toolId,
+                          action: value as ResultPolicyAction,
+                        }),
+                      ),
+                    },
+              );
+            }
+          } catch {
+            impactResult = null;
+          }
+        }
 
         if (field === "callPolicy") {
           await bulkCallPolicyMutation.mutateAsync({
@@ -320,6 +656,16 @@ export function AssignedToolsTable({
             action: value as ResultPolicyAction,
           });
         }
+        setBulkImpactReport(
+          showBulkImpact && (impactResult || hasUnsupportedImpactTools)
+            ? {
+                result: impactResult,
+                tools: toolsForUpdate,
+                field,
+                action: value,
+              }
+            : null,
+        );
       } finally {
         setIsBulkUpdating(false);
         setBulkCallPolicyValue("");
@@ -330,8 +676,10 @@ export function AssignedToolsTable({
       selectedTools,
       bulkCallPolicyMutation,
       bulkResultPolicyMutation,
+      bulkDryRunMutation,
       invocationPolicies,
       resultPolicies,
+      showBulkImpact,
     ],
   );
 
@@ -780,6 +1128,7 @@ export function AssignedToolsTable({
   );
 
   const hasSelection = selectedTools.length > 0;
+  const isBulkImpactDisabled = !hasSelection || isBulkUpdating;
 
   const visibleCatalogSources = useMemo(
     () => getVisibleCatalogSources(internalMcpCatalogItems),
@@ -890,6 +1239,37 @@ export function AssignedToolsTable({
             )}
           </div>
           <div className="ml-auto flex flex-wrap items-end gap-4">
+            <div className="flex flex-col gap-1">
+              <label
+                htmlFor="bulk-policy-impact-desktop"
+                className="text-xs font-medium text-muted-foreground"
+              >
+                Show impact
+              </label>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <label
+                    htmlFor="bulk-policy-impact-desktop"
+                    className={
+                      isBulkImpactDisabled
+                        ? "flex h-8 cursor-not-allowed items-center"
+                        : "flex h-8 cursor-pointer items-center"
+                    }
+                  >
+                    <Switch
+                      id="bulk-policy-impact-desktop"
+                      checked={showBulkImpact}
+                      onCheckedChange={setShowBulkImpact}
+                      disabled={isBulkImpactDisabled}
+                      aria-label="Show impact"
+                    />
+                  </label>
+                </TooltipTrigger>
+                <TooltipContent>
+                  Show historical impact for bulk policy changes.
+                </TooltipContent>
+              </Tooltip>
+            </div>
             <WithPermissions
               permissions={{ toolPolicy: ["update"] }}
               noPermissionHandle="tooltip"
@@ -1023,6 +1403,38 @@ export function AssignedToolsTable({
           </div>
 
           <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-1.5">
+              <label
+                htmlFor="bulk-policy-impact-mobile"
+                className="text-xs font-medium text-muted-foreground"
+              >
+                Show impact
+              </label>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <label
+                    htmlFor="bulk-policy-impact-mobile"
+                    className={
+                      isBulkImpactDisabled
+                        ? "flex h-9 cursor-not-allowed items-center"
+                        : "flex h-9 cursor-pointer items-center"
+                    }
+                  >
+                    <Switch
+                      id="bulk-policy-impact-mobile"
+                      checked={showBulkImpact}
+                      onCheckedChange={setShowBulkImpact}
+                      disabled={isBulkImpactDisabled}
+                      aria-label="Show impact"
+                    />
+                  </label>
+                </TooltipTrigger>
+                <TooltipContent>
+                  Show historical impact for bulk policy changes.
+                </TooltipContent>
+              </Tooltip>
+            </div>
+
             {/* Call Policy */}
             <WithPermissions
               permissions={{ toolPolicy: ["update"] }}
@@ -1135,6 +1547,14 @@ export function AssignedToolsTable({
             </Tooltip>
           </div>
         </div>
+
+        {bulkImpactReport ? (
+          <BulkImpactInlineReport
+            report={bulkImpactReport}
+            onClear={() => setBulkImpactReport(null)}
+            internalMcpCatalogItems={internalMcpCatalogItems}
+          />
+        ) : null}
 
         <DataTable
           columns={columns}

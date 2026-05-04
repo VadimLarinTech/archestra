@@ -17,7 +17,13 @@ import {
   ShieldCheck,
   TriangleAlert,
 } from "lucide-react";
+import type { ReactNode } from "react";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import {
+  getChangedDryRunRecords,
+  PolicyImpactAnnotation,
+  PolicyImpactSummaryCard,
+} from "@/app/mcp/tool-guardrails/_parts/policy-dry-run";
 import {
   Conversation,
   ConversationContent,
@@ -67,6 +73,10 @@ import {
   getRenderedToolName,
   getSwapToolShortName,
 } from "@/lib/chat/swap-agent.utils";
+import type {
+  PolicyDryRunDecisionRecord,
+  PolicyDryRunResponse,
+} from "@/lib/policy.query";
 import { cn } from "@/lib/utils";
 
 const MessageThread = ({
@@ -78,6 +88,8 @@ const MessageThread = ({
   hideDivider,
   profileId,
   unsafeContextBoundary,
+  policyImpactResult,
+  onClearPolicyImpact,
 }: {
   messages: PartialUIMessage[];
   reload?: () => void;
@@ -87,6 +99,8 @@ const MessageThread = ({
   hideDivider?: boolean;
   profileId?: string;
   unsafeContextBoundary?: archestraApiTypes.GetInteractionResponses["200"]["unsafeContextBoundary"];
+  policyImpactResult?: PolicyDryRunResponse | null;
+  onClearPolicyImpact?: () => void;
 }) => {
   const status: ChatStatus = "streaming" as ChatStatus;
 
@@ -99,6 +113,54 @@ const MessageThread = ({
   const unsafeBoundaryRef = useRef<HTMLDivElement>(null);
   const [showStickyUnsafeIndicator, setShowStickyUnsafeIndicator] =
     useState(false);
+  const policyImpactRecordsByToolCallId = useMemo(() => {
+    const recordsByToolCallId = new Map<string, PolicyDryRunDecisionRecord[]>();
+    if (!policyImpactResult) {
+      return recordsByToolCallId;
+    }
+    for (const record of getChangedDryRunRecords(policyImpactResult)) {
+      const toolCallId = record.stepPreview.toolCallId;
+      if (toolCallId) {
+        const records = recordsByToolCallId.get(toolCallId) ?? [];
+        records.push(record);
+        recordsByToolCallId.set(toolCallId, records);
+      }
+    }
+    return recordsByToolCallId;
+  }, [policyImpactResult]);
+  const policyImpactSummaryAnchor = useMemo(
+    () => getPolicyImpactSummaryAnchor(messages),
+    [messages],
+  );
+  const draftUnsafeContextBoundary = useMemo(
+    () => getDraftUnsafeContextBoundary(policyImpactResult),
+    [policyImpactResult],
+  );
+  const currentUnsafeContextBoundaryAnchor = useMemo(
+    () =>
+      getCurrentUnsafeContextBoundaryAnchor({
+        messages,
+        unsafeContextBoundary,
+      }),
+    [messages, unsafeContextBoundary],
+  );
+  const draftUnsafeContextBoundaryAnchor = useMemo(
+    () =>
+      getDraftUnsafeContextBoundaryAnchor({
+        messages,
+        draftUnsafeContextBoundary,
+      }),
+    [messages, draftUnsafeContextBoundary],
+  );
+  const currentUnsafeContextLabelPrefix =
+    currentUnsafeContextBoundaryAnchor &&
+    draftUnsafeContextBoundaryAnchor &&
+    !sameUnsafeContextBoundaryAnchor(
+      currentUnsafeContextBoundaryAnchor,
+      draftUnsafeContextBoundaryAnchor,
+    )
+      ? "Current"
+      : undefined;
 
   useEffect(() => {
     const boundaryElement = unsafeBoundaryRef.current;
@@ -293,32 +355,53 @@ const MessageThread = ({
                             }
                           }
 
+                          const textMessage = (
+                            <Message from={message.role}>
+                              <MessageContent>
+                                {message.role === "system" && (
+                                  <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                                    System Prompt
+                                  </div>
+                                )}
+                                {message.role === "user" ? (
+                                  <UserMessageText text={part.text} />
+                                ) : (
+                                  <Response>{part.text}</Response>
+                                )}
+                                {citationParts && (
+                                  <KnowledgeGraphCitations
+                                    parts={citationParts}
+                                  />
+                                )}
+                              </MessageContent>
+                            </Message>
+                          );
+                          const shouldRenderPolicyImpactSummary =
+                            policyImpactResult &&
+                            policyImpactSummaryAnchor?.messageIndex === idx &&
+                            policyImpactSummaryAnchor?.partIndex === i;
+
                           return (
                             <Fragment key={partKey}>
                               {shouldRenderUnsafeContextDivider && (
                                 <UnsafeContextStartsHereDivider
+                                  labelPrefix={currentUnsafeContextLabelPrefix}
                                   dividerRef={unsafeBoundaryRef}
                                 />
                               )}
-                              <Message from={message.role}>
-                                <MessageContent>
-                                  {message.role === "system" && (
-                                    <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                                      System Prompt
-                                    </div>
-                                  )}
-                                  {message.role === "user" ? (
-                                    <UserMessageText text={part.text} />
-                                  ) : (
-                                    <Response>{part.text}</Response>
-                                  )}
-                                  {citationParts && (
-                                    <KnowledgeGraphCitations
-                                      parts={citationParts}
+                              {shouldRenderPolicyImpactSummary ? (
+                                <div className="relative">
+                                  {textMessage}
+                                  <div className="mt-2 xl:absolute xl:left-full xl:top-2 xl:ml-3 xl:mt-0 xl:w-[220px]">
+                                    <PolicyImpactSummaryCard
+                                      result={policyImpactResult}
+                                      onClear={onClearPolicyImpact}
                                     />
-                                  )}
-                                </MessageContent>
-                              </Message>
+                                  </div>
+                                </div>
+                              ) : (
+                                textMessage
+                              )}
                               {message.role === "assistant" &&
                                 i === messages.length - 1 && (
                                   <MessageActions
@@ -438,11 +521,8 @@ const MessageThread = ({
                             }
                           }
 
-                          return (
-                            <Tool
-                              key={part.toolCallId ?? partKey}
-                              className={getColorClass()}
-                            >
+                          const renderedTool = (
+                            <Tool className={getColorClass()}>
                               <ToolHeader
                                 type={`tool-${toolName}`}
                                 state={
@@ -502,6 +582,24 @@ const MessageThread = ({
                                 )}
                               </ToolContent>
                             </Tool>
+                          );
+                          return (
+                            <ToolPolicyImpactBlock
+                              key={part.toolCallId ?? partKey}
+                              records={policyImpactRecordsByToolCallId.get(
+                                part.toolCallId,
+                              )}
+                              showDraftBoundary={shouldRenderDraftUnsafeContextBoundaryAfterToolPart(
+                                {
+                                  messageIndex: idx,
+                                  partIndex: i,
+                                  currentUnsafeContextBoundaryAnchor,
+                                  draftUnsafeContextBoundaryAnchor,
+                                },
+                              )}
+                            >
+                              {renderedTool}
+                            </ToolPolicyImpactBlock>
                           );
                         }
                         case "reasoning":
@@ -596,8 +694,8 @@ const MessageThread = ({
                               dualLlmPart = nextPart;
                             }
 
-                            return (
-                              <Tool key={`${message.id}-${part.toolCallId}`}>
+                            const renderedTool = (
+                              <Tool>
                                 <ToolHeader
                                   type={part.type}
                                   state={
@@ -666,6 +764,24 @@ const MessageThread = ({
                                 </ToolContent>
                               </Tool>
                             );
+                            return (
+                              <ToolPolicyImpactBlock
+                                key={`${message.id}-${part.toolCallId}`}
+                                records={policyImpactRecordsByToolCallId.get(
+                                  part.toolCallId,
+                                )}
+                                showDraftBoundary={shouldRenderDraftUnsafeContextBoundaryAfterToolPart(
+                                  {
+                                    messageIndex: idx,
+                                    partIndex: i,
+                                    currentUnsafeContextBoundaryAnchor,
+                                    draftUnsafeContextBoundaryAnchor,
+                                  },
+                                )}
+                              >
+                                {renderedTool}
+                              </ToolPolicyImpactBlock>
+                            );
                           }
 
                           // Handle custom dual-llm-analysis type (standalone, not following a tool)
@@ -707,6 +823,7 @@ const MessageThread = ({
                     unsafeContextBoundary,
                   }) && (
                     <UnsafeContextStartsHereDivider
+                      labelPrefix={currentUnsafeContextLabelPrefix}
                       dividerRef={unsafeBoundaryRef}
                     />
                   )}
@@ -736,6 +853,48 @@ const MessageThread = ({
     </div>
   );
 };
+
+function ToolPolicyImpactBlock({
+  children,
+  records,
+  showDraftBoundary,
+}: {
+  children: ReactNode;
+  records?: PolicyDryRunDecisionRecord[];
+  showDraftBoundary: boolean;
+}) {
+  return (
+    <>
+      <ToolPolicyImpact records={records}>{children}</ToolPolicyImpact>
+      {showDraftBoundary ? (
+        <UnsafeContextStartsHereDivider labelPrefix="Dry run" />
+      ) : null}
+    </>
+  );
+}
+
+function ToolPolicyImpact({
+  children,
+  records,
+}: {
+  children: ReactNode;
+  records?: PolicyDryRunDecisionRecord[];
+}) {
+  if (!records?.length) {
+    return children;
+  }
+
+  return (
+    <div className="mb-4 grid gap-2 xl:w-[calc(100%+232px)] xl:grid-cols-[minmax(0,1fr)_220px] xl:items-stretch xl:gap-x-3">
+      <div className="flex min-w-0 [&>.not-prose]:mb-0 [&>.not-prose]:flex-1">
+        {children}
+      </div>
+      <div className="flex w-full xl:w-[220px]">
+        <PolicyImpactAnnotation records={records} className="flex-1" />
+      </div>
+    </div>
+  );
+}
 
 export type {
   BlockedToolPart,
@@ -956,6 +1115,246 @@ function hasSwapToolErrorInMessageThread(
       candidate.toolCallId === part.toolCallId &&
       typeof candidate.errorText === "string" &&
       candidate.errorText.length > 0,
+  );
+}
+
+function getPolicyImpactSummaryAnchor(
+  messages: PartialUIMessage[],
+): { messageIndex: number; partIndex: number } | undefined {
+  const systemAnchor = findFirstTextPart(messages, "system");
+  return systemAnchor ?? findFirstTextPart(messages);
+}
+
+function findFirstTextPart(
+  messages: PartialUIMessage[],
+  role?: PartialUIMessage["role"],
+): { messageIndex: number; partIndex: number } | undefined {
+  for (let messageIndex = 0; messageIndex < messages.length; messageIndex++) {
+    const message = messages[messageIndex];
+    if (role && message.role !== role) {
+      continue;
+    }
+    const partIndex = message.parts.findIndex((part) => part.type === "text");
+    if (partIndex >= 0) {
+      return { messageIndex, partIndex };
+    }
+  }
+  return undefined;
+}
+
+type DraftUnsafeContextBoundary = {
+  toolCallId: string;
+};
+
+type UnsafeContextBoundaryAnchor = {
+  messageIndex: number;
+  partIndex: number;
+  toolCallId: string;
+};
+
+function getDraftUnsafeContextBoundary(
+  policyImpactResult?: PolicyDryRunResponse | null,
+): DraftUnsafeContextBoundary | undefined {
+  if (!canCreateDraftUnsafeContextBoundary(policyImpactResult)) {
+    return undefined;
+  }
+
+  for (const policyCase of policyImpactResult.result.cases) {
+    const boundaryRecord = policyCase.records.find(
+      (record) =>
+        record.stepType === "tool_result" &&
+        record.completeness === "complete" &&
+        !record.counterfactual &&
+        record.trustBefore.draft &&
+        !record.trustAfter.draft &&
+        typeof record.stepPreview.toolCallId === "string" &&
+        record.stepPreview.toolCallId.length > 0,
+    );
+    if (boundaryRecord?.stepPreview.toolCallId) {
+      return { toolCallId: boundaryRecord.stepPreview.toolCallId };
+    }
+  }
+
+  return undefined;
+}
+
+function getCurrentUnsafeContextBoundaryAnchor({
+  messages,
+  unsafeContextBoundary,
+}: {
+  messages: PartialUIMessage[];
+  unsafeContextBoundary?: archestraApiTypes.GetInteractionResponses["200"]["unsafeContextBoundary"];
+}): UnsafeContextBoundaryAnchor | undefined {
+  if (unsafeContextBoundary?.kind !== "tool_result") {
+    return undefined;
+  }
+
+  return (
+    getToolCallIdAnchor(messages, unsafeContextBoundary.toolCallId) ??
+    getUnsafeContextBoundaryAnchor(messages, unsafeContextBoundary)
+  );
+}
+
+function getDraftUnsafeContextBoundaryAnchor({
+  messages,
+  draftUnsafeContextBoundary,
+}: {
+  messages: PartialUIMessage[];
+  draftUnsafeContextBoundary?: DraftUnsafeContextBoundary;
+}): UnsafeContextBoundaryAnchor | undefined {
+  if (!draftUnsafeContextBoundary) {
+    return undefined;
+  }
+
+  return getToolCallIdAnchor(messages, draftUnsafeContextBoundary.toolCallId);
+}
+
+function getToolCallIdAnchor(
+  messages: PartialUIMessage[],
+  toolCallId: string,
+): UnsafeContextBoundaryAnchor | undefined {
+  for (let messageIndex = 0; messageIndex < messages.length; messageIndex++) {
+    const message = messages[messageIndex];
+    for (let partIndex = 0; partIndex < message.parts.length; partIndex++) {
+      const renderableToolCallId = getRenderableToolPartCallId(
+        message.parts,
+        partIndex,
+      );
+      if (renderableToolCallId === toolCallId) {
+        return { messageIndex, partIndex, toolCallId: renderableToolCallId };
+      }
+    }
+  }
+
+  return undefined;
+}
+
+function getUnsafeContextBoundaryAnchor(
+  messages: PartialUIMessage[],
+  unsafeContextBoundary: Extract<
+    NonNullable<
+      archestraApiTypes.GetInteractionResponses["200"]["unsafeContextBoundary"]
+    >,
+    { kind: "tool_result" }
+  >,
+): UnsafeContextBoundaryAnchor | undefined {
+  for (let messageIndex = 0; messageIndex < messages.length; messageIndex++) {
+    const message = messages[messageIndex];
+    for (let partIndex = 0; partIndex < message.parts.length; partIndex++) {
+      const toolCallId = getRenderableToolPartCallId(message.parts, partIndex);
+      if (
+        toolCallId &&
+        toolPartMatchesUnsafeContextBoundary(
+          message.parts[partIndex],
+          unsafeContextBoundary,
+        )
+      ) {
+        return { messageIndex, partIndex, toolCallId };
+      }
+    }
+  }
+
+  return undefined;
+}
+
+function canCreateDraftUnsafeContextBoundary(
+  policyImpactResult?: PolicyDryRunResponse | null,
+): policyImpactResult is PolicyDryRunResponse {
+  return (
+    policyImpactResult?.policyFamily === "combined" ||
+    policyImpactResult?.policyFamily === "tool_result"
+  );
+}
+
+function shouldRenderDraftUnsafeContextBoundaryAfterToolPart({
+  messageIndex,
+  partIndex,
+  currentUnsafeContextBoundaryAnchor,
+  draftUnsafeContextBoundaryAnchor,
+}: {
+  messageIndex: number;
+  partIndex: number;
+  currentUnsafeContextBoundaryAnchor?: UnsafeContextBoundaryAnchor;
+  draftUnsafeContextBoundaryAnchor?: UnsafeContextBoundaryAnchor;
+}) {
+  if (!draftUnsafeContextBoundaryAnchor) {
+    return false;
+  }
+
+  if (
+    currentUnsafeContextBoundaryAnchor &&
+    sameUnsafeContextBoundaryAnchor(
+      currentUnsafeContextBoundaryAnchor,
+      draftUnsafeContextBoundaryAnchor,
+    )
+  ) {
+    return false;
+  }
+
+  return (
+    draftUnsafeContextBoundaryAnchor.messageIndex === messageIndex &&
+    draftUnsafeContextBoundaryAnchor.partIndex === partIndex
+  );
+}
+
+function sameUnsafeContextBoundaryAnchor(
+  a: UnsafeContextBoundaryAnchor,
+  b: UnsafeContextBoundaryAnchor,
+) {
+  return a.messageIndex === b.messageIndex && a.partIndex === b.partIndex;
+}
+
+function getRenderableToolPartCallId(
+  parts: PartialUIMessage["parts"],
+  partIndex: number,
+): string | undefined {
+  const part = parts[partIndex];
+  if (
+    !part ||
+    !("toolCallId" in part) ||
+    typeof part.toolCallId !== "string" ||
+    !("state" in part)
+  ) {
+    return undefined;
+  }
+
+  if (part.state === "output-available" && partIndex > 0) {
+    const previousPart = parts[partIndex - 1];
+    if (
+      isToolPartWithState(previousPart, "input-available") &&
+      previousPart.toolCallId === part.toolCallId
+    ) {
+      return undefined;
+    }
+  }
+
+  if (
+    part.type === "dynamic-tool" ||
+    part.type === "tool-invocation" ||
+    _isToolPrefixedPart(part)
+  ) {
+    return part.toolCallId;
+  }
+
+  return undefined;
+}
+
+function isToolPartWithState(
+  part: PartialUIMessage["parts"][number] | undefined,
+  state: string,
+): part is PartialUIMessage["parts"][number] & {
+  toolCallId: string;
+  state: string;
+} {
+  if (!part) {
+    return false;
+  }
+
+  return (
+    "toolCallId" in part &&
+    typeof part.toolCallId === "string" &&
+    "state" in part &&
+    part.state === state
   );
 }
 

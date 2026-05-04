@@ -7,6 +7,7 @@ import { z } from "zod";
 import { schema } from "@/database";
 import { CredentialResolutionModeSchema } from "@/types/enterprise-managed-credentials";
 
+import { UuidIdSchema } from "./api";
 import { OpenAi } from "./llm-providers";
 
 /**
@@ -88,6 +89,29 @@ export const ToolWithAssignmentsSchema = z.object({
   assignments: z.array(ToolAssignmentSchema),
 });
 
+const CommaSeparatedStringArrayQuerySchema = z
+  .preprocess(
+    (value) => {
+      const values = Array.isArray(value) ? value : [value];
+      return values
+        .flatMap((item) => String(item).split(","))
+        .map((item) => item.trim())
+        .filter(Boolean);
+    },
+    z.array(z.string().min(1)),
+  )
+  .optional();
+
+const CommaSeparatedUuidArrayQuerySchema = z
+  .preprocess((value) => {
+    const values = Array.isArray(value) ? value : [value];
+    return values
+      .flatMap((item) => String(item).split(","))
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }, z.array(UuidIdSchema))
+  .optional();
+
 // Filter schema for tools with assignments
 export const ToolFilterSchema = z.object({
   search: z.string().optional(),
@@ -99,6 +123,12 @@ export const ToolFilterSchema = z.object({
     .boolean()
     .optional()
     .describe("Hide built-in Archestra tools"),
+  toolNames: CommaSeparatedStringArrayQuerySchema.describe(
+    "Exact tool names to include",
+  ),
+  toolIds: CommaSeparatedUuidArrayQuerySchema.describe(
+    "Exact tool IDs to include",
+  ),
 });
 
 export const ToolSortBy = [

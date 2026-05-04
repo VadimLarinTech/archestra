@@ -18,6 +18,7 @@ const {
   getOperators,
   getToolInvocationPolicies,
   getTrustedDataPolicies,
+  runPolicyDryRun,
   updateToolInvocationPolicy,
   updateTrustedDataPolicy,
 } = archestraApiSdk;
@@ -28,7 +29,19 @@ import {
   transformToolInvocationPolicies,
   transformToolResultPolicies,
 } from "./policy.utils";
-import { handleApiError } from "./utils";
+import { getApiErrorMessage, handleApiError } from "./utils";
+
+type GeneratedPolicyDryRunResponse =
+  archestraApiTypes.RunPolicyDryRunResponses["200"];
+
+export type PolicyDryRunFamily = GeneratedPolicyDryRunResponse["policyFamily"];
+
+export type PolicyDryRunDecisionRecord =
+  GeneratedPolicyDryRunResponse["result"]["cases"][number]["records"][number];
+
+export type PolicyDryRunResponse = GeneratedPolicyDryRunResponse;
+
+export type PolicyDryRunRequest = archestraApiTypes.RunPolicyDryRunData["body"];
 
 export function useToolInvocationPolicies(
   initialData?: ReturnType<typeof transformToolInvocationPolicies>,
@@ -47,6 +60,27 @@ export function useOperators() {
   return useQuery({
     queryKey: ["operators"],
     queryFn: async () => (await getOperators()).data ?? [],
+  });
+}
+
+export function usePolicyDryRunMutation(
+  options: { showErrorToast?: boolean } = {},
+) {
+  const showErrorToast = options.showErrorToast ?? true;
+  return useMutation({
+    mutationFn: async (body: PolicyDryRunRequest) => {
+      const response = await runPolicyDryRun({ body });
+      if (response.error) {
+        throw new Error(getApiErrorMessage(response.error));
+      }
+
+      return response.data;
+    },
+    onError: (error) => {
+      if (showErrorToast) {
+        toast.error(getApiErrorMessage(error));
+      }
+    },
   });
 }
 

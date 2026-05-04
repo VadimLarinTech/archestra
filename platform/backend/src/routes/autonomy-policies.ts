@@ -1,7 +1,19 @@
 import { RouteId } from "@shared";
 import type { FastifyPluginAsyncZod } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { ToolInvocationPolicyModel, TrustedDataPolicyModel } from "@/models";
+import { hasAnyAgentTypeAdminPermission } from "@/auth";
+import {
+  AgentTeamModel,
+  ToolInvocationPolicyModel,
+  TrustedDataPolicyModel,
+} from "@/models";
+import {
+  runHistoricalPolicyDryRun,
+  ToolInvocationDefaultActionChangeSchema,
+  ToolInvocationPolicyReplacementSchema,
+  TrustedDataDefaultActionChangeSchema,
+  TrustedDataPolicyReplacementSchema,
+} from "@/services/policy-dry-run/run";
 import {
   ApiError,
   AutonomyPolicyOperator,
@@ -11,6 +23,202 @@ import {
   TrustedData,
   UuidIdSchema,
 } from "@/types";
+
+const PolicyDryRunBaseBodySchema = z.object({
+  profileId: UuidIdSchema.optional(),
+  sessionId: z.string().min(1).optional(),
+  interactionId: UuidIdSchema.optional(),
+  toolName: z.string().min(1).optional(),
+  toolNames: z.array(z.string().min(1)).optional(),
+  toolIds: z.array(UuidIdSchema).optional(),
+  limit: z.number().int().min(1).max(500).optional(),
+  startDate: z.coerce.date().optional(),
+  endDate: z.coerce.date().optional(),
+});
+
+const PolicyDryRunBodySchema = z.discriminatedUnion("policyFamily", [
+  PolicyDryRunBaseBodySchema.extend({
+    policyFamily: z.literal("tool_call"),
+    toolInvocationPolicyReplacements: z
+      .array(ToolInvocationPolicyReplacementSchema)
+      .optional(),
+    toolInvocationDefaultActions: z
+      .array(ToolInvocationDefaultActionChangeSchema)
+      .optional(),
+  }).strict(),
+  PolicyDryRunBaseBodySchema.extend({
+    policyFamily: z.literal("tool_result"),
+    trustedDataPolicyReplacements: z
+      .array(TrustedDataPolicyReplacementSchema)
+      .optional(),
+    trustedDataDefaultActions: z
+      .array(TrustedDataDefaultActionChangeSchema)
+      .optional(),
+  }).strict(),
+  PolicyDryRunBaseBodySchema.extend({
+    policyFamily: z.literal("combined"),
+    toolInvocationPolicyReplacements: z
+      .array(ToolInvocationPolicyReplacementSchema)
+      .optional(),
+    trustedDataPolicyReplacements: z
+      .array(TrustedDataPolicyReplacementSchema)
+      .optional(),
+    toolInvocationDefaultActions: z
+      .array(ToolInvocationDefaultActionChangeSchema)
+      .optional(),
+    trustedDataDefaultActions: z
+      .array(TrustedDataDefaultActionChangeSchema)
+      .optional(),
+  }).strict(),
+]);
+
+const PolicyDryRunOutcomeSchema = z.enum([
+  "allow",
+  "require_approval",
+  "block",
+  "incomplete",
+  "unsupported",
+  "trusted",
+  "untrusted",
+  "blocked",
+  "sanitize_with_dual_llm",
+]);
+
+const PolicyDryRunReasonSchema = z.object({
+  code: z.string(),
+  message: z.string(),
+  matchedPolicyId: z.string().optional(),
+  matchedPolicyAction: z.string().optional(),
+  matchedConditionKeys: z.array(z.string()).optional(),
+  fallbackDecision: z.boolean(),
+});
+
+const PolicyDryRunTrustStateSchema = z.object({
+  current: z.boolean(),
+  draft: z.boolean(),
+});
+
+const PolicyDryRunDecisionRecordSchema = z.object({
+  caseId: z.string(),
+  stepId: z.string(),
+  stepOrder: z.number(),
+  stepType: z.enum(["tool_call", "tool_result", "refusal", "unsupported"]),
+  policyFamily: z.enum(["tool_call", "tool_result", "combined"]),
+  currentOutcome: PolicyDryRunOutcomeSchema.optional(),
+  draftOutcome: PolicyDryRunOutcomeSchema.optional(),
+  changed: z.boolean(),
+  category: z.enum([
+    "unchanged",
+    "newly_blocked",
+    "newly_require_approval",
+    "less_restrictive",
+    "result_newly_blocked",
+    "result_now_available",
+    "result_now_safe",
+    "result_now_sensitive",
+    "result_reclassified",
+    "missing_policy_input",
+    "unsupported",
+  ]),
+  currentReason: PolicyDryRunReasonSchema.optional(),
+  draftReason: PolicyDryRunReasonSchema.optional(),
+  trustBefore: PolicyDryRunTrustStateSchema,
+  trustAfter: PolicyDryRunTrustStateSchema,
+  completeness: z.enum(["complete", "missing_policy_input", "unsupported"]),
+  confidence: z.enum(["high_confidence", "partial", "unsupported"]),
+  reasons: z.array(z.string()),
+  sourceArtifact: z.object({
+    interactionId: z.string(),
+    field: z.enum(["request", "processedRequest", "response"]),
+    providerType: z.string(),
+  }),
+  stepPreview: z.object({
+    title: z.string(),
+    toolName: z.string().optional(),
+    toolCallId: z.string().optional(),
+    target: z.string().optional(),
+    safeIdentifiers: z.array(
+      z.object({
+        label: z.string(),
+        value: z.string(),
+      }),
+    ),
+    hiddenInputFields: z.array(z.string()),
+    rawResultHidden: z.boolean(),
+    note: z.string(),
+  }),
+  counterfactual: z.boolean(),
+  firstDivergence: z.boolean(),
+  firstResultReclassification: z.boolean(),
+  firstDownstreamAffectedStep: z.boolean(),
+});
+
+const PolicyDryRunResponseSchema = z.object({
+  policyFamily: z.enum(["tool_call", "tool_result", "combined"]),
+  filters: z.object({
+    profileId: UuidIdSchema.optional(),
+    sessionId: z.string().optional(),
+    interactionId: UuidIdSchema.optional(),
+    toolName: z.string().optional(),
+    toolNames: z.array(z.string()).optional(),
+    toolIds: z.array(UuidIdSchema).optional(),
+    limit: z.number(),
+    startDate: z.string().optional(),
+    endDate: z.string().optional(),
+  }),
+  safety: z.object({
+    livePoliciesMutated: z.literal(false),
+    liveToolsExecuted: z.literal(false),
+    llmCallsExecuted: z.literal(false),
+    rawPayloadsReturned: z.literal(false),
+  }),
+  extractionSummary: z.object({
+    interactionsScanned: z.number(),
+    casesBuilt: z.number(),
+    completeCases: z.number(),
+    partialCases: z.number(),
+    unsupportedCases: z.number(),
+    completeSteps: z.number(),
+    missingPolicyInputSteps: z.number(),
+    unsupportedSteps: z.number(),
+  }),
+  result: z.object({
+    policyFamily: z.enum(["tool_call", "tool_result", "combined"]),
+    summary: z.object({
+      evaluatedCases: z.number(),
+      skippedCases: z.number(),
+      evaluatedSteps: z.number(),
+      unsupportedSteps: z.number(),
+      missingPolicyInputSteps: z.number(),
+      affectedCases: z.number(),
+      affectedSessions: z.number(),
+      affectedToolCalls: z.number(),
+      affectedToolInteractions: z.number(),
+      newlyBlocked: z.number(),
+      newlyRequireApproval: z.number(),
+      lessRestrictive: z.number(),
+      resultsNewlyBlocked: z.number(),
+      resultsNowAvailable: z.number(),
+      resultsNowSafe: z.number(),
+      resultsNowSensitive: z.number(),
+      resultsReclassified: z.number(),
+      trustStateChanged: z.number(),
+      firstDownstreamAffected: z.number(),
+      counterfactualSteps: z.number(),
+    }),
+    cases: z.array(
+      z.object({
+        caseId: z.string(),
+        replayability: z.enum(["complete", "partial", "unsupported"]),
+        records: z.array(PolicyDryRunDecisionRecordSchema),
+        firstDivergenceStepId: z.string().optional(),
+        firstResultReclassificationStepId: z.string().optional(),
+        firstDownstreamAffectedStepId: z.string().optional(),
+      }),
+    ),
+    representativeExample: PolicyDryRunDecisionRecordSchema.optional(),
+  }),
+});
 
 const autonomyPolicyRoutes: FastifyPluginAsyncZod = async (fastify) => {
   fastify.get(
@@ -47,6 +255,53 @@ const autonomyPolicyRoutes: FastifyPluginAsyncZod = async (fastify) => {
       });
 
       return reply.send(supportedOperators);
+    },
+  );
+
+  fastify.post(
+    "/api/autonomy-policies/dry-run",
+    {
+      schema: {
+        operationId: RouteId.RunPolicyDryRun,
+        description:
+          "Run a historical impact preview for candidate tool policies without mutating live policies",
+        tags: ["Autonomy Policies"],
+        body: PolicyDryRunBodySchema,
+        response: constructResponseSchema(PolicyDryRunResponseSchema),
+      },
+    },
+    async ({ body, organizationId, user }, reply) => {
+      if (body.startDate && body.endDate && body.startDate > body.endDate) {
+        throw new ApiError(400, "startDate must be before endDate");
+      }
+      const isAgentAdmin = await hasAnyAgentTypeAdminPermission({
+        userId: user.id,
+        organizationId,
+      });
+      if (body.profileId) {
+        const hasAgentAccess = await AgentTeamModel.userHasAgentAccess(
+          user.id,
+          body.profileId,
+          isAgentAdmin,
+        );
+        if (!hasAgentAccess) {
+          throw new ApiError(403, "Forbidden");
+        }
+      }
+      const profileIds =
+        body.sessionId || !body.profileId
+          ? await AgentTeamModel.getUserAccessibleAgentIds(
+              user.id,
+              isAgentAdmin,
+            )
+          : undefined;
+
+      return reply.send(
+        await runHistoricalPolicyDryRun({
+          ...body,
+          profileIds,
+        }),
+      );
     },
   );
 
